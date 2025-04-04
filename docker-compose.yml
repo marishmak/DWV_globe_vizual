@@ -1,0 +1,32 @@
+version: "3"
+services:
+  sender:
+    build:
+      context: .
+      dockerfile: Dockerfile.sender
+    depends_on:
+      - flask-server
+    networks:
+      - app-network
+
+  flask-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "5050:5050"
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8000:80"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

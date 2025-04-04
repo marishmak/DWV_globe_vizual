@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP Address Globe</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #info, #common-locations, #activity-chart {
+            position: absolute;
+            left: 10px;
+            color: white;
+            z-index: 10;
+            font-family: Arial, sans-serif;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #info { top: 10px; }
+        #common-locations { top: 60px; max-height: 200px; overflow-y: auto; }
+        #activity-chart { bottom: 10px; max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div id="info">Loading...</div>
+    <div id="common-locations">Common Locations: Loading...</div>
+    <div id="activity-chart">Activity Peaks: Loading...</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, globe;
+        const markers = [];
+        const commonLocations = {};
+        let allData = [];
+        let currentIndex = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            addLighting();
+            createGlobe();
+            camera.position.z = 15;
+
+            fetchData();
+            animate();
+        }
+
+        function addLighting() {
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+        }
+
+        function createGlobe() {
+            const geometry = new THREE.SphereGeometry(5, 64, 64);
+            const textureLoader = new THREE.TextureLoader();
+            const texture = textureLoader.load('/earthmap.jpeg', undefined, undefined, (error) => {
+                console.error('Failed to load globe texture:', error);
+                alert('Failed to load globe texture. Please check the file path.');
+            });
+            const material = new THREE.MeshStandardMaterial({ map: texture });
+            globe = new THREE.Mesh(geometry, material);
+            scene.add(globe);
+        }
+
+        function fetchData() {
+            const url = 'http://localhost:5050/get_data';
+            console.log(`Fetching data from: ${url}`);
+
+            fetch(url, { method: 'GET', timeout: 5000 })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Received data:", data);
+                    if (!Array.isArray(data)) {
+                        throw new Error('Invalid data format: Expected an array.');
+                    }
+                    allData = data;
+                    startAddingMarkers();
+                    document.getElementById('info').innerText = `Loaded ${data.length} packages.`;
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    document.getElementById('info').innerText = 'Failed to load data. Retrying...';
+                    setTimeout(fetchData, 5000);
+                });
+        }
+
+        function startAddingMarkers() {
+            const interval = setInterval(() => {
+                for (let i = 0; i < 20 && currentIndex < allData.length; i++, currentIndex++) {
+                    const item = allData[currentIndex];
+                    addMarker(item.Latitude, item.Longitude);
+                }
+                updateCommonLocations(allData.slice(0, currentIndex));
+                updateActivityChart(allData.slice(0, currentIndex));
+
+                if (currentIndex >= allData.length) {
+                    clearInterval(interval);
+                }
+            }, 1000);
+
+            setTimeout(() => {
+                clearInterval(interval);
+            }, 10000); // Stop adding markers after 10 seconds
+        }
+
+        function addMarker(lat, lon) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180);
+            const radius = 5.1;
+
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.cos(phi);
+            const z = radius * Math.sin(phi) * Math.sin(theta);
+
+            const markerGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff1493 }); // Pink color
+            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+
+            marker.position.set(x, y, z);
+            globe.add(marker);
+
+            markers.push(marker);
+
+            const key = `${lat},${lon}`;
+            commonLocations[key] = (commonLocations[key] || 0) + 1;
+        }
+
+        function updateCommonLocations(data) {
+            const sortedLocations = Object.entries(commonLocations)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const commonLocationsHtml = sortedLocations.map(([key, count]) => {
+                const [lat, lon] = key.split(",");
+                return `<div>${lat}, ${lon} (${count} occurrences)</div>`;
+            }).join("");
+
+            document.getElementById('common-locations').innerHTML = `
+                <strong>Top 10 Common Locations:</strong>
+                ${commonLocationsHtml || "No data available."}
+            `;
+        }
+
+        function updateActivityChart(data) {
+            const timestamps = data.map(item => item.Timestamp);
+            const activityCounts = {};
+
+            timestamps.forEach(timestamp => {
+                const roundedTimestamp = Math.floor(timestamp / 60) * 60;
+                activityCounts[roundedTimestamp] = (activityCounts[roundedTimestamp] || 0) + 1;
+            });
+
+            const sortedActivity = Object.entries(activityCounts)
+                .sort((a, b) => a[0] - b[0]);
+
+            const activityChartHtml = sortedActivity.map(([timestamp, count]) => {
+                const date = new Date(parseInt(timestamp) * 3000);
+                return `<div>${date.toLocaleTimeString()} - ${count} activities</div>`;
+            }).join("");
+
+            document.getElementById('activity-chart').innerHTML = `
+                <strong>Activity Peaks:</strong>
+                ${activityChartHtml || "No data available."}
+            `;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            globe.rotation.y += 0.005;
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+    </script>
+</body>
+</html>

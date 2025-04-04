@@ -1,0 +1,15 @@
+# Dockerfile.server
+FROM python:3.9-slim
+
+# Install dependencies
+RUN pip install flask flask_cors
+
+# Copy application files
+COPY app.py /app/app.py
+
+# Set working directory
+WORKDIR /app
+
+EXPOSE 5050
+
+CMD ["python", "app.py"]

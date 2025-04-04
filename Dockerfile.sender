@@ -1,0 +1,15 @@
+# Dockerfile.sender
+FROM python:3.9-slim
+
+# Install dependencies
+RUN apt-get update && apt-get install -y curl
+RUN pip install pandas requests
+
+# Copy application files
+COPY send_data.py /app/send_data.py
+COPY ip_addresses.csv /app/ip_addresses.csv
+
+# Set working directory
+WORKDIR /app
+
+CMD ["python", "send_data.py"]
